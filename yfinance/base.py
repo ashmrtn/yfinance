@@ -73,6 +73,7 @@ class TickerBase():
         self._cashflow = {
             "yearly": utils.empty_df(),
             "quarterly": utils.empty_df()}
+        self._holdings = None
 
     def history(self, period="1mo", interval="1d",
                 start=None, end=None, prepost=False, actions=True,
@@ -434,6 +435,32 @@ class TickerBase():
                 pass
 
         self._fundamentals = True
+
+    def _get_holdings(self, kind=None, proxy=None):
+        # setup proxy in requests format
+        if proxy is not None:
+            if isinstance(proxy, dict) and "https" in proxy:
+                proxy = proxy["https"]
+            proxy = {"https": proxy}
+
+        if self._holdings is not None:
+            return
+
+        ticker_url = "{}/{}".format(self._scrape_url, self.ticker)
+
+        try:
+            resp = self.session.get(ticker_url + '/holdings')
+            resp.raise_for_status()
+            self._holdings = _pd.read_html(resp.content)[0]
+        except Exception as e:
+            self._holdings = None
+
+    def get_holdings(self, proxy=None, as_dict=False, *args, **kwargs):
+        self._get_holdings(proxy=proxy)
+        data = self._holdings
+        if as_dict:
+            return data.to_dict()
+        return data
 
     def get_recommendations(self, proxy=None, as_dict=False, *args, **kwargs):
         self._get_fundamentals(proxy=proxy)
