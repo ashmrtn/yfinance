@@ -110,8 +110,24 @@ class Ticker(TickerBase):
         return self.get_isin()
 
     @property
+    def risk(self):
+        return self.get_risk()
+
+    @property
     def holdings(self):
         return self.get_holdings()
+
+    @property
+    def category(self):
+        return self.get_category()
+
+    @property
+    def expense_ratio(self):
+        return self.get_expense_ratio()
+
+    @property
+    def trailing_returns(self):
+        return self.get_trailing_returns()
 
     @property
     def major_holders(self):

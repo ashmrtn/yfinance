@@ -74,6 +74,10 @@ class TickerBase():
             "yearly": utils.empty_df(),
             "quarterly": utils.empty_df()}
         self._holdings = None
+        self._risk = None
+        self._sector = None
+        self._expense_ratio = None
+        self._trailing_returns = None
 
     def history(self, period="1mo", interval="1d",
                 start=None, end=None, prepost=False, actions=True,
@@ -393,6 +397,18 @@ class TickerBase():
         except Exception:
             pass
 
+        self._get_risk(data)
+        self._get_holdings(data)
+        try:
+            self._sector = data.get('fundProfile', {}).get('categoryName', None)
+            self._expense_ratio = (data.get('fundProfile', {})
+                    .get('feesExpensesInvestment', {})
+                    .get('annualReportExpenseRatio', None))
+            self._trailing_returns = (data.get('fundPerformance', {})
+                    .get('trailingReturns', None))
+        except Exception:
+            pass
+
         # get fundamentals
         data = utils.get_json(ticker_url+'/financials', proxy, self.session)
 
@@ -436,31 +452,98 @@ class TickerBase():
 
         self._fundamentals = True
 
-    def _get_holdings(self, kind=None, proxy=None):
-        # setup proxy in requests format
-        if proxy is not None:
-            if isinstance(proxy, dict) and "https" in proxy:
-                proxy = proxy["https"]
-            proxy = {"https": proxy}
+    # ------------------------
 
-        if self._holdings is not None:
-            return
-
-        ticker_url = "{}/{}".format(self._scrape_url, self.ticker)
-
+    def _get_risk(self, data):
         try:
-            resp = self.session.get(ticker_url + '/holdings')
-            resp.raise_for_status()
-            self._holdings = _pd.read_html(resp.content)[0]
-        except Exception as e:
+            tmp = (data.get('fundPerformance', {})
+                        .get('riskOverviewStatistics', {})
+                        .get('riskStatistics', {}))
+            if len(tmp) == 0:
+                self._risk = None
+                return
+            self._risk = {}
+            for l in tmp:
+                timeframe = l['year']
+                del l['year']
+                self._risk[timeframe] = l
+        except Exception:
+            self._risk = None
+
+    def _get_holdings(self, data):
+        try:
+            tmp = data.get('topHoldings', {})
+            if len(tmp) == 0:
+                self._holdings = None
+                return
+
+            sectorWeights = {}
+            for w in tmp['sectorWeightings']:
+                for k,v in w.items():
+                    sectorWeights[k] = v
+
+            holdings = {}
+            for h in tmp['holdings']:
+                sym = h['symbol']
+                del h['symbol']
+                holdings[sym] = h
+
+            bondRatings = {}
+            for w in tmp['bondRatings']:
+                for k,v in w.items():
+                    bondRatings[k] = v
+
+            positions = {
+                'bond': 0,
+                'convertible': 0,
+                'stock': 0,
+                'other': 0,
+                'cash': 0,
+            }
+            for p in positions.keys():
+                v = tmp.get(p + 'Position', 0)
+                if v is None:
+                    v = 0
+                positions[p] = v
+
+            self._holdings = {
+                'sectorWeights': sectorWeights,
+                'stockHoldings': holdings,
+                'bondRatings': bondRatings,
+                'positions': positions,
+                'preferredPosition': tmp.get('preferredPosition', None),
+                'bondHoldings': tmp.get('bondHoldings', None),
+                'equityHoldings': tmp.get('equityHoldings', None),
+                'maxAge': tmp.get('maxAge', None),
+            }
+        except Exception:
             self._holdings = None
 
+    def get_risk(self, proxy=None, as_dict=False, *args, **kwargs):
+        self._get_fundamentals(proxy=proxy)
+        data = self._risk
+        if as_dict:
+            return data.to_dict()
+        return data
+
     def get_holdings(self, proxy=None, as_dict=False, *args, **kwargs):
-        self._get_holdings(proxy=proxy)
+        self._get_fundamentals(proxy=proxy)
         data = self._holdings
         if as_dict:
             return data.to_dict()
         return data
+
+    def get_category(self, proxy=None, as_dict=False, *args, **kwargs):
+        self._get_fundamentals(proxy=proxy)
+        return self._sector
+
+    def get_expense_ratio(self, proxy=None, as_dict=False, *args, **kwargs):
+        self._get_fundamentals(proxy=proxy)
+        return self._expense_ratio
+
+    def get_trailing_returns(self, proxy=None, as_dict=False, *args, **kwargs):
+        self._get_fundamentals(proxy=proxy)
+        return self._trailing_returns
 
     def get_recommendations(self, proxy=None, as_dict=False, *args, **kwargs):
         self._get_fundamentals(proxy=proxy)
